@@ -7,6 +7,7 @@ import base64
 import os
 from datetime import date, timedelta
 
+import pandas as pd
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
@@ -52,6 +53,7 @@ if st.session_state.switch_to_result:
 # ===== CSS =====
 st.markdown("""
 <style>
+/* ── 상태 배지 ── */
 .status-maintain { background:#d1fae5; color:#065f46; padding:4px 12px; border-radius:12px; font-weight:600; }
 .status-review   { background:#fef3c7; color:#92400e; padding:4px 12px; border-radius:12px; font-weight:600; }
 .status-cancel   { background:#fee2e2; color:#991b1b; padding:4px 12px; border-radius:12px; font-weight:600; }
@@ -59,18 +61,28 @@ st.markdown("""
 .priority-low    { background:#d1fae5; color:#065f46; padding:3px 10px; border-radius:8px; font-size:0.85rem; }
 .priority-mid    { background:#fef3c7; color:#92400e; padding:3px 10px; border-radius:8px; font-size:0.85rem; }
 .priority-high   { background:#fee2e2; color:#991b1b; padding:3px 10px; border-radius:8px; font-size:0.85rem; }
-</style>
-<style>
-/* selectbox 타이핑 비활성화 */
+
+/* ── 앱 이름 그라디언트 텍스트 ── */
+.brand-name {
+    background: linear-gradient(135deg, #F97066 0%, #FB923C 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    display: inline-block;
+}
+
+/* ── 메트릭 칸 구분 ── */
+[data-testid="stMetric"] {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 14px !important;
+}
+
+/* ── selectbox 타이핑 비활성화 ── */
 div[data-baseweb="select"] input {
     pointer-events: none !important;
     caret-color: transparent !important;
-}
-/* 랜딩 입력 카드 내부 위젯 상단 여백 제거 */
-.landing-input-card > div { padding-top: 0 !important; }
-/* 랜딩 버튼 row 상단 간격 */
-div[data-testid="stHorizontalBlock"] + div[data-testid="stHorizontalBlock"] {
-    margin-top: 4px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -90,79 +102,158 @@ BILLING_OFFSETS = [2, 5, 10, 20, 15]
 
 PERSONAS = [
     {
-        "name": "대학생 A — OTT 중복형",
-        "description": "OTT를 여러 개 구독하고 있지만 실제 사용 빈도는 일부 서비스에 몰려 있음",
+        "name": "대학생 A — OTT 중복 + AI 입문형",
+        "description": "넷플릭스를 중심으로 OTT를 여러 개 구독하다 AI도 추가했지만 중복 지출이 쌓인 상태",
         "goal_product": "무선 이어폰",
         "goal_price": 250000,
         "subscriptions": [
-            {"service_name": "넷플릭스",       "category": "OTT",  "monthly_fee": 17000, "usage_count": 18, "satisfaction": 5},
-            {"service_name": "티빙",            "category": "OTT",  "monthly_fee": 13900, "usage_count":  2, "satisfaction": 2},
-            {"service_name": "디즈니플러스",    "category": "OTT",  "monthly_fee":  9900, "usage_count":  2, "satisfaction": 2},
-            {"service_name": "유튜브 프리미엄", "category": "음악", "monthly_fee": 14900, "usage_count": 18, "satisfaction": 5},
-            {"service_name": "쿠팡와우",        "category": "쇼핑", "monthly_fee":  7890, "usage_count":  8, "satisfaction": 4},
+            {"service_name": "넷플릭스",       "category": "OTT",    "monthly_fee": 17000, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "티빙",            "category": "OTT",    "monthly_fee": 13900, "usage_count":  2, "satisfaction": 2},
+            {"service_name": "디즈니플러스",    "category": "OTT",    "monthly_fee":  9900, "usage_count":  2, "satisfaction": 2},
+            {"service_name": "유튜브 프리미엄", "category": "음악",   "monthly_fee": 14900, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "ChatGPT Plus",   "category": "AI/LLM", "monthly_fee": 28000, "usage_count":  8, "satisfaction": 4},
         ],
     },
     {
-        "name": "대학생 B — 클라우드/생산성 유지형",
-        "description": "사용 빈도는 낮지만 클라우드와 생산성 도구에 의존하고 있음",
+        "name": "사회초년생 B — 생활 구독 + 클라우드 중복형",
+        "description": "직장 생활 시작 후 편의 서비스를 하나씩 추가했지만 클라우드가 두 개로 겹쳐 있음",
         "goal_product": "태블릿",
         "goal_price": 600000,
         "subscriptions": [
-            {"service_name": "iCloud",     "category": "클라우드", "monthly_fee":  3300, "usage_count":  2, "satisfaction": 5},
-            {"service_name": "Google One", "category": "클라우드", "monthly_fee":  2400, "usage_count":  2, "satisfaction": 4},
-            {"service_name": "Notion AI",  "category": "생산성",   "monthly_fee": 12000, "usage_count":  8, "satisfaction": 4},
-            {"service_name": "스포티파이", "category": "음악",     "monthly_fee": 10900, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "스포티파이",      "category": "음악",     "monthly_fee": 10900, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "쿠팡와우",        "category": "쇼핑",     "monthly_fee":  7890, "usage_count": 18, "satisfaction": 4},
+            {"service_name": "iCloud",          "category": "클라우드", "monthly_fee":  3300, "usage_count":  2, "satisfaction": 5},
+            {"service_name": "Google One",      "category": "클라우드", "monthly_fee":  2400, "usage_count":  2, "satisfaction": 4},
+            {"service_name": "Notion AI",       "category": "AI 생산성","monthly_fee": 14000, "usage_count":  8, "satisfaction": 4},
         ],
     },
     {
-        "name": "사회초년생 C — 소액 구독 누적형",
-        "description": "개별 구독료는 작다고 생각했지만 여러 개가 누적되어 월 지출이 커진 상태",
+        "name": "대학생 C — 소액 구독 누적 + AI 방치형",
+        "description": "개별 구독료는 작다고 생각했지만 AI 포함 여러 개가 쌓여 월 지출이 커진 상태",
         "goal_product": "여행 경비",
         "goal_price": 500000,
         "subscriptions": [
-            {"service_name": "쿠팡와우",           "category": "쇼핑", "monthly_fee":  7890, "usage_count": 18, "satisfaction": 4},
-            {"service_name": "네이버플러스 멤버십", "category": "쇼핑", "monthly_fee":  4900, "usage_count":  2, "satisfaction": 3},
-            {"service_name": "멜론",               "category": "음악", "monthly_fee":  7900, "usage_count":  2, "satisfaction": 3},
-            {"service_name": "티빙",               "category": "OTT",  "monthly_fee": 13900, "usage_count":  2, "satisfaction": 2},
-            {"service_name": "웨이브",             "category": "OTT",  "monthly_fee": 10900, "usage_count":  2, "satisfaction": 2},
+            {"service_name": "쿠팡와우",           "category": "쇼핑",   "monthly_fee":  7890, "usage_count": 18, "satisfaction": 4},
+            {"service_name": "멜론",               "category": "음악",   "monthly_fee":  7900, "usage_count":  2, "satisfaction": 3},
+            {"service_name": "티빙",               "category": "OTT",    "monthly_fee": 13900, "usage_count":  2, "satisfaction": 2},
+            {"service_name": "웨이브",             "category": "OTT",    "monthly_fee": 10900, "usage_count":  2, "satisfaction": 2},
+            {"service_name": "Perplexity Pro",     "category": "AI/LLM", "monthly_fee": 28000, "usage_count":  0, "satisfaction": 2},
         ],
     },
     {
-        "name": "직장인 D — 무료체험 후 자동결제 방치형",
-        "description": "무료체험으로 시작한 서비스를 해지하지 못해 자동결제가 이어지고 있음",
+        "name": "직장인 D — 무료체험 방치 + AI 자동결제형",
+        "description": "무료체험으로 시작한 서비스 여러 개가 자동결제로 이어지는 중, AI도 포함",
         "goal_product": "스마트워치",
         "goal_price": 350000,
         "subscriptions": [
-            {"service_name": "디즈니플러스",    "category": "OTT",  "monthly_fee":  9900, "usage_count":  2, "satisfaction": 2},
-            {"service_name": "웨이브",          "category": "OTT",  "monthly_fee": 10900, "usage_count":  2, "satisfaction": 2},
-            {"service_name": "밀리의서재",      "category": "교육", "monthly_fee":  9900, "usage_count":  0, "satisfaction": 2},
             {"service_name": "유튜브 프리미엄", "category": "음악", "monthly_fee": 14900, "usage_count": 18, "satisfaction": 5},
             {"service_name": "쿠팡와우",        "category": "쇼핑", "monthly_fee":  7890, "usage_count":  8, "satisfaction": 4},
+            {"service_name": "디즈니플러스",    "category": "OTT",  "monthly_fee":  9900, "usage_count":  2, "satisfaction": 2},
+            {"service_name": "밀리의서재",      "category": "교육", "monthly_fee":  9900, "usage_count":  0, "satisfaction": 2},
+            {"service_name": "Claude Pro",      "category": "AI/LLM","monthly_fee": 28000, "usage_count":  0, "satisfaction": 2},
         ],
     },
     {
-        "name": "대학생 E — 음악/콘텐츠 고만족 유지형",
-        "description": "구독 개수는 많지 않지만 자주 쓰는 음악과 콘텐츠 서비스 만족도가 높음",
+        "name": "대학생 E — 콘텐츠+AI 고만족 유지형",
+        "description": "OTT·음악과 AI를 함께 구독하지만 모두 자주 쓰고 만족도가 높은 상태",
         "goal_product": "콘서트 티켓",
         "goal_price": 180000,
         "subscriptions": [
-            {"service_name": "유튜브 프리미엄", "category": "음악",     "monthly_fee": 14900, "usage_count": 18, "satisfaction": 5},
-            {"service_name": "스포티파이",      "category": "음악",     "monthly_fee": 10900, "usage_count": 18, "satisfaction": 5},
-            {"service_name": "넷플릭스",        "category": "OTT",      "monthly_fee": 17000, "usage_count":  8, "satisfaction": 4},
-            {"service_name": "iCloud",          "category": "클라우드", "monthly_fee":  3300, "usage_count":  2, "satisfaction": 4},
+            {"service_name": "넷플릭스",        "category": "OTT",    "monthly_fee": 17000, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "유튜브 프리미엄", "category": "음악",   "monthly_fee": 14900, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "ChatGPT Plus",   "category": "AI/LLM", "monthly_fee": 28000, "usage_count":  8, "satisfaction": 5},
+            {"service_name": "iCloud",          "category": "클라우드","monthly_fee":  3300, "usage_count":  2, "satisfaction": 4},
         ],
     },
     {
-        "name": "취업준비생 F — 학습 구독 미사용형",
-        "description": "자기계발을 위해 교육 구독을 여러 개 신청했지만 실제 사용 빈도는 낮은 상태",
+        "name": "취업준비생 F — 학습+AI 미사용 누적형",
+        "description": "자기계발 목적으로 교육·AI 구독을 여러 개 시작했지만 실제 사용 빈도가 낮은 상태",
         "goal_product": "자격증 응시료",
         "goal_price": 200000,
         "subscriptions": [
-            {"service_name": "클래스101",           "category": "교육", "monthly_fee": 19900, "usage_count":  2, "satisfaction": 2},
-            {"service_name": "패스트캠퍼스",        "category": "교육", "monthly_fee": 29000, "usage_count":  2, "satisfaction": 3},
-            {"service_name": "밀리의서재",          "category": "교육", "monthly_fee":  9900, "usage_count":  2, "satisfaction": 2},
-            {"service_name": "Notion AI",           "category": "생산성","monthly_fee": 12000, "usage_count":  8, "satisfaction": 4},
-            {"service_name": "네이버플러스 멤버십", "category": "쇼핑", "monthly_fee":  4900, "usage_count":  2, "satisfaction": 3},
+            {"service_name": "클래스101",           "category": "교육",    "monthly_fee": 19900, "usage_count":  2, "satisfaction": 2},
+            {"service_name": "패스트캠퍼스",        "category": "교육",    "monthly_fee": 29000, "usage_count":  2, "satisfaction": 3},
+            {"service_name": "밀리의서재",          "category": "교육",    "monthly_fee":  9900, "usage_count":  2, "satisfaction": 2},
+            {"service_name": "Notion AI",           "category": "AI 생산성","monthly_fee": 14000, "usage_count":  8, "satisfaction": 4},
+            {"service_name": "네이버플러스 멤버십", "category": "쇼핑",    "monthly_fee":  4900, "usage_count":  2, "satisfaction": 3},
+        ],
+    },
+    {
+        "name": "대학생 G — AI 학습도구 중복 + OTT 혼합형",
+        "description": "과제·글쓰기용 AI를 여러 개 구독했지만 실제 사용은 한두 개에 집중, OTT도 함께 이용 중",
+        "goal_product": "노트북",
+        "goal_price": 1200000,
+        "subscriptions": [
+            {"service_name": "ChatGPT Plus",  "category": "AI/LLM",  "monthly_fee": 28000, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "Claude Pro",    "category": "AI/LLM",  "monthly_fee": 28000, "usage_count":  8, "satisfaction": 4},
+            {"service_name": "Perplexity Pro","category": "AI/LLM",  "monthly_fee": 28000, "usage_count":  2, "satisfaction": 3},
+            {"service_name": "넷플릭스",      "category": "OTT",     "monthly_fee": 17000, "usage_count":  8, "satisfaction": 4},
+            {"service_name": "유튜브 프리미엄","category": "음악",   "monthly_fee": 14900, "usage_count": 18, "satisfaction": 5},
+        ],
+    },
+    {
+        "name": "개발자 준비생 H — 코딩 AI + 생활 구독 혼합형",
+        "description": "코딩 AI를 여러 개 구독 중이며, 쇼핑·음악 서비스도 함께 이용하는 현실적인 구독 구성",
+        "goal_product": "맥북",
+        "goal_price": 1500000,
+        "subscriptions": [
+            {"service_name": "ChatGPT Plus",  "category": "AI/LLM",   "monthly_fee": 28000, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "Cursor Pro",    "category": "AI 생산성", "monthly_fee": 28000, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "GitHub Copilot","category": "AI 생산성", "monthly_fee": 14000, "usage_count":  8, "satisfaction": 4},
+            {"service_name": "쿠팡와우",      "category": "쇼핑",      "monthly_fee":  7890, "usage_count": 18, "satisfaction": 4},
+            {"service_name": "유튜브 프리미엄","category": "음악",     "monthly_fee": 14900, "usage_count": 18, "satisfaction": 5},
+        ],
+    },
+    {
+        "name": "콘텐츠 제작자 I — AI 제작도구 + 콘텐츠 소비 혼합형",
+        "description": "이미지·음성 AI 도구를 활용하면서 OTT·음악도 함께 구독, 프로젝트 없는 달엔 미사용 도구 발생",
+        "goal_product": "카메라",
+        "goal_price": 800000,
+        "subscriptions": [
+            {"service_name": "Canva Pro",     "category": "AI 콘텐츠 제작", "monthly_fee": 21000, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "Midjourney",    "category": "AI 콘텐츠 제작", "monthly_fee": 30000, "usage_count":  8, "satisfaction": 4},
+            {"service_name": "ElevenLabs",    "category": "AI 콘텐츠 제작", "monthly_fee": 22000, "usage_count":  0, "satisfaction": 2},
+            {"service_name": "넷플릭스",      "category": "OTT",            "monthly_fee": 17000, "usage_count":  8, "satisfaction": 4},
+            {"service_name": "유튜브 프리미엄","category": "음악",          "monthly_fee": 14900, "usage_count": 18, "satisfaction": 5},
+        ],
+    },
+    {
+        "name": "직장인 J — 생산성 AI 누적 + 일상 구독 혼합형",
+        "description": "업무용 AI 구독을 여러 개 늘렸지만 기능이 겹치고, 쇼핑·클라우드도 함께 이용 중",
+        "goal_product": "해외여행",
+        "goal_price": 600000,
+        "subscriptions": [
+            {"service_name": "ChatGPT Plus",         "category": "AI/LLM",   "monthly_fee": 28000, "usage_count":  8, "satisfaction": 4},
+            {"service_name": "Microsoft Copilot Pro", "category": "AI 생산성","monthly_fee": 28000, "usage_count":  2, "satisfaction": 3},
+            {"service_name": "쿠팡와우",             "category": "쇼핑",     "monthly_fee":  7890, "usage_count": 18, "satisfaction": 4},
+            {"service_name": "유튜브 프리미엄",      "category": "음악",     "monthly_fee": 14900, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "Google One",            "category": "클라우드", "monthly_fee":  3400, "usage_count":  8, "satisfaction": 5},
+        ],
+    },
+    {
+        "name": "취업준비생 K — AI 방치 + 교육·음악 혼합형",
+        "description": "면접 준비로 시작한 AI 구독 중 일부는 미사용, 교육·음악 서비스도 같이 이어지고 있음",
+        "goal_product": "자격증 응시료",
+        "goal_price": 200000,
+        "subscriptions": [
+            {"service_name": "Claude Pro",     "category": "AI/LLM", "monthly_fee": 28000, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "Perplexity Pro", "category": "AI/LLM", "monthly_fee": 28000, "usage_count":  0, "satisfaction": 2},
+            {"service_name": "패스트캠퍼스",   "category": "교육",   "monthly_fee": 29000, "usage_count":  2, "satisfaction": 3},
+            {"service_name": "클래스101",      "category": "교육",   "monthly_fee": 19900, "usage_count":  2, "satisfaction": 2},
+            {"service_name": "멜론",           "category": "음악",   "monthly_fee":  7900, "usage_count":  8, "satisfaction": 4},
+        ],
+    },
+    {
+        "name": "대학원생 L — 연구 AI + 클라우드 혼합형",
+        "description": "논문 작성·자료 탐색에 AI를 활용하고 클라우드 두 개로 연구 자료를 관리 중",
+        "goal_product": "연구 장비",
+        "goal_price": 500000,
+        "subscriptions": [
+            {"service_name": "ChatGPT Plus",  "category": "AI/LLM",  "monthly_fee": 28000, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "Claude Pro",    "category": "AI/LLM",  "monthly_fee": 28000, "usage_count": 18, "satisfaction": 5},
+            {"service_name": "Perplexity Pro","category": "AI/LLM",  "monthly_fee": 28000, "usage_count":  8, "satisfaction": 4},
+            {"service_name": "Google One",    "category": "클라우드", "monthly_fee":  3400, "usage_count":  8, "satisfaction": 5},
+            {"service_name": "iCloud",        "category": "클라우드", "monthly_fee":  3300, "usage_count":  2, "satisfaction": 4},
         ],
     },
 ]
@@ -204,153 +295,85 @@ if st.session_state["page"] == "landing":
     if os.path.exists(_img_path):
         with open(_img_path, "rb") as _f:
             _img_b64 = base64.b64encode(_f.read()).decode()
-        _hero_right = (
-            f'<img src="data:image/png;base64,{_img_b64}" '
-            f'style="width:100%; border-radius:14px; object-fit:cover; max-height:280px;" />'
-        )
+        _hero_right = f'<img src="data:image/png;base64,{_img_b64}" style="width:100%;border-radius:14px;object-fit:cover;max-height:280px;" />'
     else:
-        _hero_right = """
-        <div style="
-            background: rgba(255,255,255,0.15);
-            border-radius: 16px;
-            padding: 24px;
-            border: 1px solid rgba(255,255,255,0.25);
-        ">
-            <div style="font-size:0.7rem; font-weight:700; letter-spacing:0.1em;
-                        opacity:0.65; margin-bottom:14px; text-transform:uppercase;">
-                구독 현황 예시
-            </div>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                <div style="background:rgba(255,255,255,0.18); border-radius:10px; padding:14px 12px;">
-                    <div style="font-size:0.68rem; opacity:0.8; margin-bottom:6px;">월 구독 수</div>
-                    <div style="font-size:1.55rem; font-weight:800; line-height:1;">5개</div>
-                </div>
-                <div style="background:rgba(255,255,255,0.18); border-radius:10px; padding:14px 12px;">
-                    <div style="font-size:0.68rem; opacity:0.8; margin-bottom:6px;">월 반복 지출</div>
-                    <div style="font-size:1.3rem; font-weight:800; line-height:1;">66,000원</div>
-                </div>
-                <div style="background:rgba(255,255,255,0.18); border-radius:10px; padding:14px 12px;">
-                    <div style="font-size:0.68rem; opacity:0.8; margin-bottom:6px;">다음 결제</div>
-                    <div style="font-size:1.55rem; font-weight:800; line-height:1;">D-3</div>
-                </div>
-                <div style="background:#fbbf24; border-radius:10px; padding:14px 12px; color:#1e293b;">
-                    <div style="font-size:0.68rem; font-weight:600; margin-bottom:6px;">카테고리 중복</div>
-                    <div style="font-size:1rem; font-weight:800; line-height:1.35;">OTT<br>2개 이용 중</div>
-                </div>
-            </div>
-        </div>
-        """
+        _hero_right = (
+            '<div style="background:rgba(255,255,255,0.15);border-radius:16px;padding:24px;border:1px solid rgba(255,255,255,0.25);">'
+            '<div style="font-size:0.7rem;font-weight:700;letter-spacing:0.1em;opacity:0.65;margin-bottom:14px;text-transform:uppercase;">구독 현황 예시</div>'
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
+            '<div style="background:rgba(255,255,255,0.18);border-radius:10px;padding:14px 12px;">'
+            '<div style="font-size:0.68rem;opacity:0.8;margin-bottom:6px;">월 구독 수</div>'
+            '<div style="font-size:1.55rem;font-weight:800;line-height:1;">5개</div></div>'
+            '<div style="background:rgba(255,255,255,0.18);border-radius:10px;padding:14px 12px;">'
+            '<div style="font-size:0.68rem;opacity:0.8;margin-bottom:6px;">월 반복 지출</div>'
+            '<div style="font-size:1.3rem;font-weight:800;line-height:1;">66,000원</div></div>'
+            '<div style="background:rgba(255,255,255,0.18);border-radius:10px;padding:14px 12px;">'
+            '<div style="font-size:0.68rem;opacity:0.8;margin-bottom:6px;">다음 결제</div>'
+            '<div style="font-size:1.55rem;font-weight:800;line-height:1;">D-3</div></div>'
+            '<div style="background:#fbbf24;border-radius:10px;padding:14px 12px;color:#1e293b;">'
+            '<div style="font-size:0.68rem;font-weight:600;margin-bottom:6px;">카테고리 중복</div>'
+            '<div style="font-size:1rem;font-weight:800;line-height:1.35;">OTT<br>2개 이용 중</div></div>'
+            '</div></div>'
+        )
 
     # ── 히어로 블록 (2열) ──
-    st.markdown(f"""
-<div style="
-    background: linear-gradient(135deg, #3B82F6 0%, #6366F1 100%);
-    border-radius: 20px;
-    padding: 52px 48px 44px 48px;
-    color: white;
-    margin-bottom: 28px;
-    display: flex;
-    align-items: center;
-    gap: 48px;
-">
-    <div style="flex: 3; min-width: 0;">
-        <div style="
-            font-size: 0.78rem;
-            font-weight: 700;
-            letter-spacing: 0.14em;
-            opacity: 0.7;
-            text-transform: uppercase;
-            margin-bottom: 20px;
-        ">
-            💳 &nbsp;모아Sub
-        </div>
-        <div style="
-            font-size: 2.1rem;
-            font-weight: 800;
-            line-height: 1.38;
-            margin-bottom: 20px;
-        ">
-            사고 싶은 목표를 정하고,<br>
-            자동결제로 새어나가는<br>구독 지출을 점검해보세요.
-        </div>
-        <div style="
-            font-size: 0.97rem;
-            line-height: 1.78;
-            opacity: 0.85;
-        ">
-            모아Sub은 반복되는 구독 지출을 한눈에 확인하고,<br>
-            사용 빈도·만족도·결제일·카테고리 중복 여부를 바탕으로<br>
-            구독 상태를 점검할 수 있도록 돕는 서비스입니다.
-        </div>
-    </div>
-    <div style="flex: 2; min-width: 0;">
-        {_hero_right}
-    </div>
-</div>
-""", unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg,#3B82F6 0%,#6366F1 100%);'
+        f'border-radius:20px;padding:52px 48px 44px;color:white;margin-bottom:28px;'
+        f'display:flex;align-items:center;gap:48px;">'
+        f'<div style="flex:3;min-width:0;">'
+        f'<div style="font-size:1.4rem;font-weight:800;letter-spacing:0.06em;margin-bottom:20px;">💳 &nbsp;<span style="background:linear-gradient(135deg,#F97066,#FB923C);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">모아Sub</span></div>'
+        f'<div style="font-size:2.1rem;font-weight:800;line-height:1.38;margin-bottom:20px;">'
+        f'사고 싶은 목표를 정하고,<br>자동결제로 새어나가는<br>구독 지출을 점검해보세요.</div>'
+        f'<div style="font-size:0.97rem;line-height:1.78;opacity:0.85;">'
+        f'모아Sub은 반복되는 구독 지출을 한눈에 확인하고,<br>'
+        f'사용 빈도·만족도·결제일·카테고리 중복 여부를 바탕으로<br>'
+        f'구독 상태를 점검할 수 있도록 돕는 서비스입니다.</div>'
+        f'</div>'
+        f'<div style="flex:2;min-width:0;">{_hero_right}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     # ── 목표 소비 입력 카드 ──
-    st.markdown("""
-<div style="
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 16px;
-    padding: 28px 28px 8px 28px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 6px 20px rgba(0,0,0,0.04);
-">
-<p style="font-size:1.05rem; font-weight:700; color:#1e293b; margin:0 0 6px 0;">
-    목표 소비 설정
-</p>
-<p style="font-size:0.875rem; color:#64748b; line-height:1.65; margin:0 0 14px 0;">
-    사고 싶은 항목과 목표 금액을 입력하면, 구독 점검 결과 화면에서 반복 지출을
-    점검 대상으로 선택했을 때 목표 달성 속도가 어떻게 달라지는지 확인할 수 있습니다.
-</p>
-<p style="font-size:0.78rem; color:#94a3b8; margin:0 0 4px 0;">예시로 시작하기</p>
-""", unsafe_allow_html=True)
-
-    # 예시 칩 버튼
-    chip_c1, chip_c2, chip_c3, chip_c4, _ = st.columns([1, 1, 1, 1, 5])
-    for _col, _chip in zip([chip_c1, chip_c2, chip_c3, chip_c4],
-                            ["에어팟", "여행", "노트북", "콘서트"]):
-        if _col.button(_chip, key=f"chip_{_chip}"):
-            st.session_state["target_name"] = _chip
-            st.rerun()
-
-    # 입력 필드
-    l1, l2 = st.columns(2)
-    with l1:
-        landing_target_name = st.text_input(
-            "사고 싶은 항목명",
-            placeholder="예: 무선 이어폰, 여행 경비, 콘서트 티켓",
-            value=st.session_state["target_name"],
-        )
-    with l2:
-        landing_target_price = st.number_input(
-            "목표 금액 (원)",
-            min_value=0,
-            value=int(st.session_state["target_price"]),
-            step=1000,
+    with st.container(border=True):
+        st.markdown(
+            '<p style="font-size:1.05rem;font-weight:700;color:#1e293b;margin:0 0 6px 0;">목표 소비 설정</p>'
+            '<p style="font-size:0.875rem;color:#64748b;line-height:1.65;margin:0 0 4px 0;">'
+            '사고 싶은 항목과 목표 금액을 입력하면, 구독 점검 결과에서 목표 달성 속도 변화를 확인할 수 있습니다.</p>',
+            unsafe_allow_html=True,
         )
 
-    # ── 시작 버튼 ──
-    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-    btn_col1, btn_col2 = st.columns(2)
-    with btn_col1:
-        if st.button("목표 설정하고 구독 점검 시작하기", type="primary", use_container_width=True):
-            st.session_state["target_name"] = landing_target_name.strip()
-            st.session_state["target_price"] = int(landing_target_price)
-            st.session_state["goal_product"] = landing_target_name.strip()
-            st.session_state["goal_price"] = int(landing_target_price)
-            st.session_state["page"] = "check"
-            st.rerun()
-    with btn_col2:
-        if st.button("목표 없이 구독 점검 시작하기", type="secondary", use_container_width=True):
-            st.session_state["target_name"] = ""
-            st.session_state["target_price"] = 0
-            st.session_state["page"] = "check"
-            st.rerun()
+        l1, l2 = st.columns(2)
+        with l1:
+            landing_target_name = st.text_input(
+                "사고 싶은 항목명",
+                placeholder="예: 무선 이어폰, 여행 경비, 콘서트 티켓",
+                value=st.session_state["target_name"],
+            )
+        with l2:
+            landing_target_price = st.number_input(
+                "목표 금액 (원)",
+                min_value=0,
+                value=int(st.session_state["target_price"]),
+                step=1000,
+            )
 
-    st.markdown("</div>", unsafe_allow_html=True)
+        btn_col1, btn_col2 = st.columns(2)
+        with btn_col1:
+            if st.button("목표 설정하고 구독 점검 시작하기", type="primary", use_container_width=True):
+                st.session_state["target_name"] = landing_target_name.strip()
+                st.session_state["target_price"] = int(landing_target_price)
+                st.session_state["goal_product"] = landing_target_name.strip()
+                st.session_state["goal_price"] = int(landing_target_price)
+                st.session_state["page"] = "check"
+                st.rerun()
+        with btn_col2:
+            if st.button("목표 없이 구독 점검 시작하기", type="secondary", use_container_width=True):
+                st.session_state["target_name"] = ""
+                st.session_state["target_price"] = 0
+                st.session_state["page"] = "check"
+                st.rerun()
 
 else:
 
@@ -364,7 +387,10 @@ else:
         st.rerun()
 
     # ── 헤더 ──
-    st.title("💳 모아Sub")
+    st.markdown(
+        '💳 <span class="brand-name" style="font-size:2rem;font-weight:800;">모아Sub</span>',
+        unsafe_allow_html=True,
+    )
     st.caption(
         "자동결제 시대에 흩어진 구독 지출을 한눈에 확인하고, "
         "유지·점검·해지 검토 여부를 스스로 선택할 수 있도록 돕는 구독 소비 인식 지원 서비스입니다."
@@ -403,7 +429,7 @@ else:
             col_a, col_b = st.columns(2)
             with col_a:
                 service_name = st.text_input("서비스명 *", placeholder="예: 넷플릭스")
-                category = st.selectbox("카테고리 *", ["OTT", "음악", "쇼핑", "클라우드", "교육", "생산성", "기타"])
+                category = st.selectbox("카테고리 *", ["OTT", "음악", "쇼핑", "클라우드", "교육", "생산성", "AI/LLM", "AI 생산성", "AI 콘텐츠 제작", "기타"])
                 billing_cycle = st.selectbox("결제 주기 *", ["월별", "연간"])
                 fee_input = st.number_input(
                     "결제금액 (원) *",
@@ -517,112 +543,259 @@ else:
             summary = data.get("summary", {})
             goal_sim = data.get("goal_simulation")
             results = data.get("results", [])
-
-            # 전체 요약
-            st.subheader("전체 요약")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("총 월 지출", f"{summary.get('total_monthly_fee', 0):,}원")
-            c2.metric("총 연간 지출", f"{summary.get('total_annual_fee', 0):,}원")
-            c3.metric("구독 수", f"{summary.get('subscription_count', 0)}개")
             dup = summary.get("duplicate_categories", [])
-            c4.metric("중복 카테고리", ", ".join(dup) if dup else "없음")
-
-            if dup:
-                st.warning(f"같은 카테고리에 여러 구독이 있습니다: **{', '.join(dup)}**  —  실제 이용 빈도를 비교해보세요.")
 
             status_counts = {"유지 후보": 0, "점검 후보": 0, "해지 검토 후보": 0}
             for r in results:
                 status_counts[r["status"]] = status_counts.get(r["status"], 0) + 1
-            s1, s2, s3 = st.columns(3)
-            s1.metric("유지 후보", f"{status_counts['유지 후보']}개")
-            s2.metric("점검 후보", f"{status_counts['점검 후보']}개")
-            s3.metric("해지 검토 후보", f"{status_counts['해지 검토 후보']}개")
 
-            # 목표 소비 시뮬레이션
-            if goal_sim:
+            _order = {"해지 검토 후보": 0, "점검 후보": 1, "유지 후보": 2}
+            sorted_results = sorted(results, key=lambda r: (_order.get(r["status"], 3), -r.get("check_score", 0)))
+            _USD_CATS = {"AI/LLM", "AI 생산성", "AI 콘텐츠 제작"}
+            _sub_map = {s["service_name"]: s for s in st.session_state.subscriptions}
+
+            r_tab1, r_tab2, r_tab3, r_tab4, r_tab5 = st.tabs([
+                "대시보드", "우선 점검 대상", "전체 구독 목록", "상세 설명", "목표 소비 시뮬레이션"
+            ])
+
+            # ── 1. 대시보드 ──────────────────────────────────────────
+            with r_tab1:
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("총 월 지출", f"{summary.get('total_monthly_fee', 0):,}원")
+                c2.metric("총 연간 지출", f"{summary.get('total_annual_fee', 0):,}원")
+                c3.metric("구독 수", f"{summary.get('subscription_count', 0)}개")
+                c4.metric("중복 카테고리", ", ".join(dup) if dup else "없음")
+
+                s1, s2, s3 = st.columns(3)
+                s1.metric("유지 후보", f"{status_counts['유지 후보']}개")
+                s2.metric("점검 후보", f"{status_counts['점검 후보']}개")
+                s3.metric("해지 검토 후보", f"{status_counts['해지 검토 후보']}개")
+
+                if dup:
+                    st.warning(f"같은 카테고리에 여러 구독이 있습니다: **{', '.join(dup)}** — 실제 이용 빈도를 비교해보세요.")
+
                 st.divider()
-                st.subheader("목표 소비 선택 시뮬레이션")
-                st.caption("이 구독을 점검 대상으로 선택한다고 가정했을 때의 저축 속도 변화입니다. 판단을 돕는 참고 정보입니다.")
-                g1, g2, g3 = st.columns(3)
-                g1.metric("목표 상품", goal_sim.get("product_name") or "-", f"목표 금액: {goal_sim.get('target_price', 0):,}원")
-                g2.metric("월 예상 절감액", f"{goal_sim.get('selected_monthly_saving', 0):,}원", f"하루 추가 절감: {goal_sim.get('daily_extra_saving', 0):,}원")
-                g3.metric("목표 달성 속도", f"약 {goal_sim.get('speed_up_ratio', 0):.1f}% 빠름", "하루 1만 원 저축 기준 대비")
-                svc = goal_sim.get("simulation_services", [])
-                if svc:
-                    st.markdown(
-                        f"> 시뮬레이션 기준 구독: **{', '.join(svc)}**  \n"
-                        f"> 하루 1만 원 기준 대비 목표 달성 속도가 약 **{goal_sim.get('speed_up_ratio', 0):.1f}%** 빨라집니다."
-                    )
-
-            # 구독별 결과
-            st.divider()
-            st.subheader("구독별 점검 결과")
-
-            order = {"해지 검토 후보": 0, "점검 후보": 1, "유지 후보": 2}
-            for item in sorted(results, key=lambda r: (order.get(r["status"], 3), -r.get("check_score", 0))):
-                status = item["status"]
-                border = {"유지 후보": "#10b981", "점검 후보": "#f59e0b", "해지 검토 후보": "#ef4444"}.get(status, "#94a3b8")
-
-                st.markdown(
-                    f"<div style='border-left:4px solid {border};padding:12px 16px;"
-                    f"background:#f8fafc;border-radius:0 8px 8px 0;margin-bottom:8px'>",
-                    unsafe_allow_html=True,
-                )
-
-                h1, h2 = st.columns([6, 2])
-                h1.markdown(
-                    f"### {item['service_name']} "
-                    f"<small style='color:#64748b'>{item['category']}</small>",
-                    unsafe_allow_html=True,
-                )
-                h2.markdown(status_badge(status), unsafe_allow_html=True)
-
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("월 요금", f"{item['monthly_fee']:,}원")
-                m2.metric("연간 비용", f"{item['annual_fee']:,}원")
-                m3.metric("결제까지", f"{item['days_until_billing']}일")
-                m4.metric("카테고리", item["category"])
-
-                with st.expander("점검 기준 분석", expanded=(status != "유지 후보")):
-                    sc, rc = st.columns([1, 2])
-                    with sc:
-                        score = item.get("check_score", 0)
-                        priority = item.get("priority_level", "")
-                        st.markdown("**점검 점수**")
+                st.subheader("우선 확인할 항목")
+                _priority_preview = [r for r in sorted_results if r["status"] in ("점검 후보", "해지 검토 후보")][:3]
+                if _priority_preview:
+                    for _item in _priority_preview:
+                        _st = _item["status"]
+                        _bd = {"점검 후보": "#f59e0b", "해지 검토 후보": "#ef4444"}.get(_st, "#94a3b8")
                         st.markdown(
-                            f"<span class='score-badge'>{score}점</span>&nbsp;"
-                            f"{priority_badge(priority)}",
+                            f"<div style='border-left:4px solid {_bd};padding:10px 16px;"
+                            f"background:#f8fafc;border-radius:0 8px 8px 0;margin-bottom:6px;'>",
                             unsafe_allow_html=True,
                         )
+                        _pa, _pb, _pc, _pd = st.columns([3, 2, 2, 2])
+                        _pa.markdown(
+                            f"**{_item['service_name']}** &nbsp;"
+                            f"<small style='color:#64748b;'>{_item['category']}</small>",
+                            unsafe_allow_html=True,
+                        )
+                        _pb.markdown(status_badge(_st), unsafe_allow_html=True)
+                        _pc.markdown(f"월 **{_item['monthly_fee']:,}원**")
+                        _pd.markdown(f"다음 결제 **D-{_item['days_until_billing']}**")
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    if len([r for r in sorted_results if r["status"] in ("점검 후보", "해지 검토 후보")]) > 3:
+                        st.caption("더 많은 항목은 '우선 점검 대상' 탭에서 확인하세요.")
+                else:
+                    st.info("현재 우선 점검 대상은 없습니다. 다만 중복 카테고리나 결제일이 가까운 구독은 확인해볼 수 있습니다.")
+
+                with st.expander("원본 응답 JSON (개발자용)", expanded=False):
+                    st.json(data)
+
+            # ── 2. 우선 점검 대상 ────────────────────────────────────
+            with r_tab2:
+                _priority_all = [r for r in sorted_results if r["status"] in ("점검 후보", "해지 검토 후보")]
+                if not _priority_all:
+                    st.success("현재 점검 후보 또는 해지 검토 후보 구독이 없습니다.")
+                else:
+                    for item in _priority_all:
+                        status = item["status"]
+                        border = {"점검 후보": "#f59e0b", "해지 검토 후보": "#ef4444"}.get(status, "#94a3b8")
+
+                        st.markdown(
+                            f"<div style='border-left:4px solid {border};padding:12px 16px;"
+                            f"background:#f8fafc;border-radius:0 8px 8px 0;margin-bottom:8px'>",
+                            unsafe_allow_html=True,
+                        )
+                        h1, h2 = st.columns([6, 2])
+                        h1.markdown(
+                            f"### {item['service_name']} "
+                            f"<small style='color:#64748b'>{item['category']}</small>",
+                            unsafe_allow_html=True,
+                        )
+                        h2.markdown(status_badge(status), unsafe_allow_html=True)
+
+                        p1, p2, p3 = st.columns(3)
+                        p1.metric("월 요금", f"{item['monthly_fee']:,}원")
+                        p2.metric("다음 결제", f"D-{item['days_until_billing']}")
+                        p3.metric("카테고리", item["category"])
+
+                        if item.get("category") in _USD_CATS:
+                            st.caption("💱 해외 구독 서비스는 환율과 카드사 수수료에 따라 실제 원화 청구액이 달라질 수 있습니다. 점검 결과는 사용자가 입력한 월 결제금액을 기준으로 계산됩니다.")
+
+                        if item.get("rule_reasons"):
+                            st.markdown(
+                                " ".join(
+                                    f"<span style='background:#f1f5f9;border:1px solid #cbd5e1;"
+                                    f"border-radius:6px;padding:2px 8px;font-size:0.8rem;"
+                                    f"color:#475569;margin-right:4px;'>{reason}</span>"
+                                    for reason in item["rule_reasons"]
+                                ),
+                                unsafe_allow_html=True,
+                            )
+                            st.markdown("")
+
+                        if item.get("rag_explanation"):
+                            with st.expander("판단을 돕는 참고 정보", expanded=False):
+                                st.markdown(f"> {item['rag_explanation']}")
+                                rc1, rc2 = st.columns(2)
+                                with rc1:
+                                    if item.get("alternatives"):
+                                        st.markdown("**비교해볼 서비스**")
+                                        st.markdown(" · ".join(item["alternatives"]))
+                                    if item.get("cancel_path"):
+                                        st.markdown("**해지 경로**")
+                                        st.markdown(f"`{item['cancel_path']}`")
+                                with rc2:
+                                    if item.get("cautions"):
+                                        st.markdown("**확인해볼 사항**")
+                                        for c in item["cautions"]:
+                                            st.markdown(f"- {c}")
+
+                        st.markdown("</div>", unsafe_allow_html=True)
                         st.markdown("")
-                        st.caption("유지 후보: 0-2점  |  점검 후보: 3-5점  |  해지 검토 후보: 6점 이상")
-                    with rc:
-                        st.markdown("**점검 기준 항목**")
-                        for reason in item.get("rule_reasons", []):
-                            st.markdown(f"- {reason}")
 
-                if status in ("점검 후보", "해지 검토 후보") and item.get("rag_explanation"):
-                    with st.expander("판단을 돕는 참고 정보", expanded=True):
-                        st.markdown(f"> {item['rag_explanation']}")
-                        rc1, rc2 = st.columns(2)
-                        with rc1:
-                            if item.get("alternatives"):
-                                st.markdown("**비교해볼 서비스**")
-                                st.markdown(" · ".join(item["alternatives"]))
-                            if item.get("cancel_path"):
-                                st.markdown("**해지 경로**")
-                                st.markdown(f"`{item['cancel_path']}`")
-                        with rc2:
-                            if item.get("cautions"):
-                                st.markdown("**확인해볼 사항**")
-                                for c in item["cautions"]:
-                                    st.markdown(f"- {c}")
+            # ── 3. 전체 구독 목록 ────────────────────────────────────
+            with r_tab3:
+                _table_rows = []
+                for item in sorted_results:
+                    _sub = _sub_map.get(item["service_name"], {})
+                    _usage = _sub.get("usage_count", item.get("usage_count"))
+                    _sat = _sub.get("satisfaction", item.get("satisfaction"))
+                    _usage_label = USAGE_LABELS.get(_usage, f"{_usage}회") if isinstance(_usage, int) else "-"
+                    _sat_label = ("★" * _sat + "☆" * (5 - _sat)) if isinstance(_sat, int) else "-"
+                    _table_rows.append({
+                        "서비스명": item["service_name"],
+                        "카테고리": item["category"],
+                        "월 요금": f"{item['monthly_fee']:,}원",
+                        "연간 비용": f"{item['annual_fee']:,}원",
+                        "사용 빈도": _usage_label,
+                        "만족도": _sat_label,
+                        "다음 결제": f"D-{item['days_until_billing']}",
+                        "상태": item["status"],
+                    })
+                st.dataframe(pd.DataFrame(_table_rows), use_container_width=True, hide_index=True)
 
-                st.markdown("</div>", unsafe_allow_html=True)
-                st.markdown("")
+            # ── 4. 상세 설명 ─────────────────────────────────────────
+            with r_tab4:
+                for item in sorted_results:
+                    status = item["status"]
+                    border = {"유지 후보": "#10b981", "점검 후보": "#f59e0b", "해지 검토 후보": "#ef4444"}.get(status, "#94a3b8")
 
-            with st.expander("원본 응답 JSON (개발자용)", expanded=False):
-                st.json(data)
+                    st.markdown(
+                        f"<div style='border-left:4px solid {border};padding:12px 16px;"
+                        f"background:#f8fafc;border-radius:0 8px 8px 0;margin-bottom:8px'>",
+                        unsafe_allow_html=True,
+                    )
+                    h1, h2 = st.columns([6, 2])
+                    h1.markdown(
+                        f"### {item['service_name']} "
+                        f"<small style='color:#64748b'>{item['category']}</small>",
+                        unsafe_allow_html=True,
+                    )
+                    h2.markdown(status_badge(status), unsafe_allow_html=True)
+
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("월 요금", f"{item['monthly_fee']:,}원")
+                    m2.metric("연간 비용", f"{item['annual_fee']:,}원")
+                    m3.metric("다음 결제", f"D-{item['days_until_billing']}")
+                    m4.metric("카테고리", item["category"])
+
+                    if item.get("category") in _USD_CATS:
+                        st.caption("💱 해외 구독 서비스는 환율과 카드사 수수료에 따라 실제 원화 청구액이 달라질 수 있습니다. 점검 결과는 사용자가 입력한 월 결제금액을 기준으로 계산됩니다.")
+
+                    with st.expander("점검 기준 분석", expanded=(status != "유지 후보")):
+                        sc, rc = st.columns([1, 2])
+                        with sc:
+                            score = item.get("check_score", 0)
+                            priority = item.get("priority_level", "")
+                            st.markdown("**점검 점수**")
+                            st.markdown(
+                                f"<span class='score-badge'>{score}점</span>&nbsp;"
+                                f"{priority_badge(priority)}",
+                                unsafe_allow_html=True,
+                            )
+                            st.markdown("")
+                            st.caption("유지 후보: 0-2점  |  점검 후보: 3-5점  |  해지 검토 후보: 6점 이상")
+                        with rc:
+                            st.markdown("**점검 기준 항목**")
+                            for reason in item.get("rule_reasons", []):
+                                st.markdown(f"- {reason}")
+
+                    if status in ("점검 후보", "해지 검토 후보") and item.get("rag_explanation"):
+                        with st.expander("판단을 돕는 참고 정보", expanded=True):
+                            st.markdown(f"> {item['rag_explanation']}")
+                            rc1, rc2 = st.columns(2)
+                            with rc1:
+                                if item.get("alternatives"):
+                                    st.markdown("**비교해볼 서비스**")
+                                    st.markdown(" · ".join(item["alternatives"]))
+                                if item.get("cancel_path"):
+                                    st.markdown("**해지 경로**")
+                                    st.markdown(f"`{item['cancel_path']}`")
+                            with rc2:
+                                if item.get("cautions"):
+                                    st.markdown("**확인해볼 사항**")
+                                    for c in item["cautions"]:
+                                        st.markdown(f"- {c}")
+
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    st.markdown("")
+
+            # ── 5. 목표 소비 시뮬레이션 ──────────────────────────────
+            with r_tab5:
+                if goal_sim:
+                    st.subheader("목표 소비 선택 시뮬레이션")
+                    st.caption("이 구독을 점검 대상으로 선택한다고 가정했을 때의 저축 속도 변화입니다. 판단을 돕는 참고 정보입니다.")
+                    g1, g2, g3 = st.columns(3)
+                    g1.metric("목표 상품", goal_sim.get("product_name") or "-", f"목표 금액: {goal_sim.get('target_price', 0):,}원")
+                    g2.metric("월 예상 절감액", f"{goal_sim.get('selected_monthly_saving', 0):,}원", f"하루 추가 절감: {goal_sim.get('daily_extra_saving', 0):,}원")
+                    g3.metric("목표 달성 속도", f"약 {goal_sim.get('speed_up_ratio', 0):.1f}% 빠름", "하루 1만 원 저축 기준 대비")
+                    svc = goal_sim.get("simulation_services", [])
+                    if svc:
+                        st.markdown(
+                            f"> 시뮬레이션 기준 구독: **{', '.join(svc)}**  \n"
+                            f"> 하루 1만 원 기준 대비 목표 달성 속도가 약 **{goal_sim.get('speed_up_ratio', 0):.1f}%** 빨라집니다."
+                        )
+                else:
+                    _cancel_monthly = sum(r["monthly_fee"] for r in results if r["status"] == "해지 검토 후보")
+                    _review_monthly = sum(r["monthly_fee"] for r in results if r["status"] == "점검 후보")
+                    _saveable_monthly = _cancel_monthly + _review_monthly // 2
+                    _saveable_annual = _saveable_monthly * 12
+                    if _saveable_monthly > 0:
+                        def _qualitative_label(annual: int) -> str:
+                            if annual >= 600000:
+                                return "국내 여행 한 번 또는 취미 장비 구입"
+                            if annual >= 300000:
+                                return "콘서트·공연 관람 또는 자격증 도전"
+                            if annual >= 150000:
+                                return "외식·카페·소소한 취미 활동"
+                            return "한 달 커피값 이상의 여유"
+                        st.subheader("절약 가능성 한눈에 보기")
+                        st.caption("해지 검토 후보 구독을 조정할 경우의 잠재 절감액입니다. 실제 해지를 권장하는 것이 아니라, 판단에 참고하도록 제공하는 정보입니다.")
+                        q1, q2, q3 = st.columns(3)
+                        q1.metric("월 잠재 절감액", f"{_saveable_monthly:,}원", "해지 검토 후보 기준")
+                        q2.metric("연간으로 환산하면", f"{_saveable_annual:,}원")
+                        q3.metric("이만큼으로", _qualitative_label(_saveable_annual))
+                        st.markdown(
+                            f"> 지금 구독 중인 서비스 중 **해지 검토 후보**로 분류된 항목을 조정하면,  \n"
+                            f"> 매달 최대 **{_saveable_monthly:,}원**, 연간 **{_saveable_annual:,}원**의 여유가 생길 수 있습니다.  \n"
+                            f"> 목표 상품이 있다면 랜딩 페이지에서 목표를 설정해 달성 속도를 확인해보세요."
+                        )
+                    else:
+                        st.info("목표가 설정되지 않았습니다. 랜딩 페이지에서 목표 상품과 금액을 입력하면 달성 속도를 확인할 수 있습니다.")
 
 # ===== 푸터 =====
 st.divider()
