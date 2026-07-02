@@ -7,6 +7,7 @@ import base64
 import os
 from datetime import date, timedelta
 
+import altair as alt
 import pandas as pd
 import requests
 import streamlit as st
@@ -34,8 +35,12 @@ if "analysis_result" not in st.session_state:
     st.session_state.analysis_result = None
 if "switch_to_result" not in st.session_state:
     st.session_state.switch_to_result = False
+if "switch_to_detail" not in st.session_state:
+    st.session_state["switch_to_detail"] = False
+if "detail_service" not in st.session_state:
+    st.session_state["detail_service"] = ""
 
-# ===== 탭 자동 전환 (분석 완료 직후) =====
+# ===== 탭 자동 전환 =====
 if st.session_state.switch_to_result:
     st.session_state.switch_to_result = False
     components.html(
@@ -44,6 +49,21 @@ if st.session_state.switch_to_result:
             setTimeout(function() {
                 var tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
                 if (tabs.length > 1) { tabs[1].click(); }
+            }, 300);
+        </script>
+        """,
+        height=0,
+    )
+
+if st.session_state.switch_to_detail:
+    st.session_state.switch_to_detail = False
+    components.html(
+        """
+        <script>
+            setTimeout(function() {
+                // 전체 탭: [구독입력, 점검결과, 대시보드, 우선점검대상, 전체목록, 상세설명, 목표시뮬레이션]
+                var tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
+                if (tabs.length > 5) { tabs[5].click(); }
             }, 300);
         </script>
         """,
@@ -211,8 +231,8 @@ PERSONAS = [
         "goal_price": 800000,
         "subscriptions": [
             {"service_name": "Canva Pro",     "category": "AI 콘텐츠 제작", "monthly_fee": 21000, "usage_count": 18, "satisfaction": 5},
-            {"service_name": "Midjourney",    "category": "AI 콘텐츠 제작", "monthly_fee": 30000, "usage_count":  8, "satisfaction": 4},
-            {"service_name": "ElevenLabs",    "category": "AI 콘텐츠 제작", "monthly_fee": 22000, "usage_count":  0, "satisfaction": 2},
+            {"service_name": "Midjourney",    "category": "AI 콘텐츠 제작", "monthly_fee": 42000, "usage_count":  8, "satisfaction": 4},
+            {"service_name": "ElevenLabs",    "category": "AI 콘텐츠 제작", "monthly_fee": 30000, "usage_count":  0, "satisfaction": 2},
             {"service_name": "넷플릭스",      "category": "OTT",            "monthly_fee": 17000, "usage_count":  8, "satisfaction": 4},
             {"service_name": "유튜브 프리미엄","category": "음악",          "monthly_fee": 14900, "usage_count": 18, "satisfaction": 5},
         ],
@@ -554,12 +574,87 @@ else:
             _USD_CATS = {"AI/LLM", "AI 생산성", "AI 콘텐츠 제작"}
             _sub_map = {s["service_name"]: s for s in st.session_state.subscriptions}
 
-            r_tab1, r_tab2, r_tab3, r_tab4, r_tab5 = st.tabs([
-                "대시보드", "우선 점검 대상", "전체 구독 목록", "상세 설명", "목표 소비 시뮬레이션"
+            # ── 목표 소비 시뮬레이션 + 상태 도넛 ───────────────────────
+            _gs_left, _gs_right = st.columns([5, 3])
+
+            with _gs_left:
+                if goal_sim:
+                    g1, g2, g3 = st.columns(3)
+                    g1.metric(
+                        "목표 상품",
+                        goal_sim.get("product_name") or "-",
+                        f"목표 금액: {goal_sim.get('target_price', 0):,}원",
+                    )
+                    g2.metric(
+                        "월 예상 절감액",
+                        f"{goal_sim.get('selected_monthly_saving', 0):,}원",
+                        f"하루 추가 절감: {goal_sim.get('daily_extra_saving', 0):,}원",
+                    )
+                    g3.metric(
+                        "목표 달성 속도",
+                        f"약 {goal_sim.get('speed_up_ratio', 0):.1f}% 빠름",
+                        "하루 1만 원 저축 기준 대비",
+                    )
+                    _svc_sim = goal_sim.get("simulation_services", [])
+                    if _svc_sim:
+                        st.caption(
+                            f"시뮬레이션 기준 구독: **{', '.join(_svc_sim)}** — "
+                            f"하루 1만 원 기준 대비 목표 달성 속도가 약 **{goal_sim.get('speed_up_ratio', 0):.1f}%** 빨라집니다."
+                        )
+                else:
+                    _c_monthly = sum(r["monthly_fee"] for r in results if r["status"] == "해지 검토 후보")
+                    _r_monthly = sum(r["monthly_fee"] for r in results if r["status"] == "점검 후보")
+                    _sv_monthly = _c_monthly + _r_monthly // 2
+                    if _sv_monthly > 0:
+                        _sv_annual = _sv_monthly * 12
+                        def _ql(a):
+                            if a >= 600000: return "국내 여행 한 번 또는 취미 장비 구입"
+                            if a >= 300000: return "콘서트·공연 관람 또는 자격증 도전"
+                            if a >= 150000: return "외식·카페·소소한 취미 활동"
+                            return "한 달 커피값 이상의 여유"
+                        q1, q2, q3 = st.columns(3)
+                        q1.metric("월 잠재 절감액", f"{_sv_monthly:,}원", "해지 검토 후보 기준")
+                        q2.metric("연간으로 환산하면", f"{_sv_annual:,}원")
+                        q3.metric("이만큼으로", _ql(_sv_annual))
+                        st.caption(
+                            "목표 상품이 있다면 랜딩 페이지에서 목표를 설정해 달성 속도를 확인해보세요. "
+                            "점검 결과는 사용자가 입력한 월 결제금액을 기준으로 계산됩니다."
+                        )
+
+            with _gs_right:
+                st.markdown("**상태별 구독 현황**")
+                _status_df_top = pd.DataFrame([
+                    {"상태": k, "개수": v}
+                    for k, v in status_counts.items() if v > 0
+                ])
+                _donut_top = (
+                    alt.Chart(_status_df_top)
+                    .mark_arc(innerRadius=0, outerRadius=90)
+                    .encode(
+                        theta=alt.Theta("개수:Q"),
+                        color=alt.Color(
+                            "상태:N",
+                            scale=alt.Scale(
+                                domain=["유지 후보", "점검 후보", "해지 검토 후보"],
+                                range=["#10b981", "#f59e0b", "#ef4444"],
+                            ),
+                            legend=alt.Legend(title="상태", orient="right"),
+                        ),
+                        tooltip=["상태", "개수"],
+                    )
+                    .properties(height=200)
+                )
+                st.altair_chart(_donut_top, use_container_width=True)
+
+            st.divider()
+
+            r_tab1, r_tab2, r_tab3, r_tab4 = st.tabs([
+                "대시보드", "우선 점검 대상", "전체 구독 목록", "상세 설명"
             ])
 
             # ── 1. 대시보드 ──────────────────────────────────────────
             with r_tab1:
+                # 핵심 지표
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("총 월 지출", f"{summary.get('total_monthly_fee', 0):,}원")
                 c2.metric("총 연간 지출", f"{summary.get('total_annual_fee', 0):,}원")
@@ -575,6 +670,59 @@ else:
                     st.warning(f"같은 카테고리에 여러 구독이 있습니다: **{', '.join(dup)}** — 실제 이용 빈도를 비교해보세요.")
 
                 st.divider()
+
+                # ── 차트 행 1: 카테고리 막대 + 구독별 막대 (2열) ──
+                ch1, ch2 = st.columns(2)
+
+                with ch1:
+                    st.markdown("**카테고리별 월 지출**")
+                    _cat_df = (
+                        pd.DataFrame([{"카테고리": r["category"], "월 요금": r["monthly_fee"]} for r in results])
+                        .groupby("카테고리", as_index=False)["월 요금"].sum()
+                        .sort_values("월 요금", ascending=False)
+                    )
+                    _cat_chart = (
+                        alt.Chart(_cat_df)
+                        .mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+                        .encode(
+                            x=alt.X("월 요금:Q", title="원", axis=alt.Axis(format=",.0f", tickCount=5)),
+                            y=alt.Y("카테고리:N", sort="-x", title=""),
+                            color=alt.value("#3B82F6"),
+                            tooltip=["카테고리", alt.Tooltip("월 요금:Q", format=",.0f", title="월 요금(원)")],
+                        )
+                        .properties(height=max(200, len(_cat_df) * 36))
+                    )
+                    st.altair_chart(_cat_chart, use_container_width=True)
+
+                with ch2:
+                    st.markdown("**구독별 월 요금 비교**")
+                    _svc_df = pd.DataFrame([
+                        {"서비스명": r["service_name"], "월 요금": r["monthly_fee"], "상태": r["status"]}
+                        for r in results
+                    ]).sort_values("월 요금", ascending=False)
+                    _svc_chart = (
+                        alt.Chart(_svc_df)
+                        .mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+                        .encode(
+                            x=alt.X("월 요금:Q", title="원", axis=alt.Axis(format=",.0f", tickCount=5)),
+                            y=alt.Y("서비스명:N", sort="-x", title=""),
+                            color=alt.Color(
+                                "상태:N",
+                                scale=alt.Scale(
+                                    domain=["유지 후보", "점검 후보", "해지 검토 후보"],
+                                    range=["#10b981", "#f59e0b", "#ef4444"],
+                                ),
+                                legend=alt.Legend(title="상태"),
+                            ),
+                            tooltip=["서비스명", "상태", alt.Tooltip("월 요금:Q", format=",.0f", title="월 요금(원)")],
+                        )
+                        .properties(height=max(200, len(_svc_df) * 34))
+                    )
+                    st.altair_chart(_svc_chart, use_container_width=True)
+
+                st.divider()
+
+                # 우선 확인할 항목
                 st.subheader("우선 확인할 항목")
                 _priority_preview = [r for r in sorted_results if r["status"] in ("점검 후보", "해지 검토 후보")][:3]
                 if _priority_preview:
@@ -586,7 +734,7 @@ else:
                             f"background:#f8fafc;border-radius:0 8px 8px 0;margin-bottom:6px;'>",
                             unsafe_allow_html=True,
                         )
-                        _pa, _pb, _pc, _pd = st.columns([3, 2, 2, 2])
+                        _pa, _pb, _pc, _pd, _pe = st.columns([3, 2, 2, 2, 1])
                         _pa.markdown(
                             f"**{_item['service_name']}** &nbsp;"
                             f"<small style='color:#64748b;'>{_item['category']}</small>",
@@ -595,6 +743,10 @@ else:
                         _pb.markdown(status_badge(_st), unsafe_allow_html=True)
                         _pc.markdown(f"월 **{_item['monthly_fee']:,}원**")
                         _pd.markdown(f"다음 결제 **D-{_item['days_until_billing']}**")
+                        if _pe.button("상세 →", key=f"goto_detail_{_item['service_name']}"):
+                            st.session_state["detail_service"] = _item["service_name"]
+                            st.session_state["switch_to_detail"] = True
+                            st.rerun()
                         st.markdown("</div>", unsafe_allow_html=True)
                     if len([r for r in sorted_results if r["status"] in ("점검 후보", "해지 검토 후보")]) > 3:
                         st.caption("더 많은 항목은 '우선 점검 대상' 탭에서 확인하세요.")
@@ -686,17 +838,41 @@ else:
                         "다음 결제": f"D-{item['days_until_billing']}",
                         "상태": item["status"],
                     })
-                st.dataframe(pd.DataFrame(_table_rows), use_container_width=True, hide_index=True)
+                st.dataframe(
+                    pd.DataFrame(_table_rows),
+                    use_container_width=True,
+                    hide_index=True,
+                    height=min(600, 56 + len(_table_rows) * 35),
+                    column_config={
+                        "서비스명":  st.column_config.TextColumn("서비스명",  width="medium"),
+                        "카테고리":  st.column_config.TextColumn("카테고리",  width="small"),
+                        "월 요금":   st.column_config.TextColumn("월 요금",   width="small"),
+                        "연간 비용": st.column_config.TextColumn("연간 비용", width="small"),
+                        "사용 빈도": st.column_config.TextColumn("사용 빈도", width="medium"),
+                        "만족도":    st.column_config.TextColumn("만족도",    width="small"),
+                        "다음 결제": st.column_config.TextColumn("다음 결제", width="small"),
+                        "상태":      st.column_config.TextColumn("상태",      width="medium"),
+                    },
+                )
 
             # ── 4. 상세 설명 ─────────────────────────────────────────
             with r_tab4:
-                for item in sorted_results:
+                _focused = st.session_state.get("detail_service", "")
+                # 포커스 항목을 최상단으로 재정렬
+                _detail_order = sorted(
+                    sorted_results,
+                    key=lambda r: (0 if r["service_name"] == _focused else 1, _order.get(r["status"], 3))
+                )
+                for item in _detail_order:
                     status = item["status"]
+                    _is_focused = item["service_name"] == _focused
                     border = {"유지 후보": "#10b981", "점검 후보": "#f59e0b", "해지 검토 후보": "#ef4444"}.get(status, "#94a3b8")
+                    _bg = "#fffbeb" if _is_focused else "#f8fafc"
 
                     st.markdown(
                         f"<div style='border-left:4px solid {border};padding:12px 16px;"
-                        f"background:#f8fafc;border-radius:0 8px 8px 0;margin-bottom:8px'>",
+                        f"background:{_bg};border-radius:0 8px 8px 0;margin-bottom:8px;"
+                        f"{'box-shadow:0 0 0 2px #f59e0b33;' if _is_focused else ''}'>",
                         unsafe_allow_html=True,
                     )
                     h1, h2 = st.columns([6, 2])
@@ -716,7 +892,7 @@ else:
                     if item.get("category") in _USD_CATS:
                         st.caption("💱 해외 구독 서비스는 환율과 카드사 수수료에 따라 실제 원화 청구액이 달라질 수 있습니다. 점검 결과는 사용자가 입력한 월 결제금액을 기준으로 계산됩니다.")
 
-                    with st.expander("점검 기준 분석", expanded=(status != "유지 후보")):
+                    with st.expander("점검 기준 분석", expanded=(_is_focused or status != "유지 후보")):
                         sc, rc = st.columns([1, 2])
                         with sc:
                             score = item.get("check_score", 0)
@@ -754,48 +930,6 @@ else:
                     st.markdown("</div>", unsafe_allow_html=True)
                     st.markdown("")
 
-            # ── 5. 목표 소비 시뮬레이션 ──────────────────────────────
-            with r_tab5:
-                if goal_sim:
-                    st.subheader("목표 소비 선택 시뮬레이션")
-                    st.caption("이 구독을 점검 대상으로 선택한다고 가정했을 때의 저축 속도 변화입니다. 판단을 돕는 참고 정보입니다.")
-                    g1, g2, g3 = st.columns(3)
-                    g1.metric("목표 상품", goal_sim.get("product_name") or "-", f"목표 금액: {goal_sim.get('target_price', 0):,}원")
-                    g2.metric("월 예상 절감액", f"{goal_sim.get('selected_monthly_saving', 0):,}원", f"하루 추가 절감: {goal_sim.get('daily_extra_saving', 0):,}원")
-                    g3.metric("목표 달성 속도", f"약 {goal_sim.get('speed_up_ratio', 0):.1f}% 빠름", "하루 1만 원 저축 기준 대비")
-                    svc = goal_sim.get("simulation_services", [])
-                    if svc:
-                        st.markdown(
-                            f"> 시뮬레이션 기준 구독: **{', '.join(svc)}**  \n"
-                            f"> 하루 1만 원 기준 대비 목표 달성 속도가 약 **{goal_sim.get('speed_up_ratio', 0):.1f}%** 빨라집니다."
-                        )
-                else:
-                    _cancel_monthly = sum(r["monthly_fee"] for r in results if r["status"] == "해지 검토 후보")
-                    _review_monthly = sum(r["monthly_fee"] for r in results if r["status"] == "점검 후보")
-                    _saveable_monthly = _cancel_monthly + _review_monthly // 2
-                    _saveable_annual = _saveable_monthly * 12
-                    if _saveable_monthly > 0:
-                        def _qualitative_label(annual: int) -> str:
-                            if annual >= 600000:
-                                return "국내 여행 한 번 또는 취미 장비 구입"
-                            if annual >= 300000:
-                                return "콘서트·공연 관람 또는 자격증 도전"
-                            if annual >= 150000:
-                                return "외식·카페·소소한 취미 활동"
-                            return "한 달 커피값 이상의 여유"
-                        st.subheader("절약 가능성 한눈에 보기")
-                        st.caption("해지 검토 후보 구독을 조정할 경우의 잠재 절감액입니다. 실제 해지를 권장하는 것이 아니라, 판단에 참고하도록 제공하는 정보입니다.")
-                        q1, q2, q3 = st.columns(3)
-                        q1.metric("월 잠재 절감액", f"{_saveable_monthly:,}원", "해지 검토 후보 기준")
-                        q2.metric("연간으로 환산하면", f"{_saveable_annual:,}원")
-                        q3.metric("이만큼으로", _qualitative_label(_saveable_annual))
-                        st.markdown(
-                            f"> 지금 구독 중인 서비스 중 **해지 검토 후보**로 분류된 항목을 조정하면,  \n"
-                            f"> 매달 최대 **{_saveable_monthly:,}원**, 연간 **{_saveable_annual:,}원**의 여유가 생길 수 있습니다.  \n"
-                            f"> 목표 상품이 있다면 랜딩 페이지에서 목표를 설정해 달성 속도를 확인해보세요."
-                        )
-                    else:
-                        st.info("목표가 설정되지 않았습니다. 랜딩 페이지에서 목표 상품과 금액을 입력하면 달성 속도를 확인할 수 있습니다.")
 
 # ===== 푸터 =====
 st.divider()
