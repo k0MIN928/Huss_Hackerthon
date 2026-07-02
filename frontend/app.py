@@ -3,6 +3,8 @@
 랜딩페이지 → 구독 점검 → 분석 결과
 """
 
+import base64
+import os
 from datetime import date, timedelta
 
 import requests
@@ -195,44 +197,94 @@ if st.session_state["page"] == "landing":
     # 랜딩페이지
     # ============================================================
 
-    # ── 히어로 블록 ──
-    st.markdown("""
+    # ── 히어로 오른쪽 콘텐츠 결정 (이미지 or 미니 대시보드) ──
+    _img_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "assets", "landing_main.png"
+    )
+    if os.path.exists(_img_path):
+        with open(_img_path, "rb") as _f:
+            _img_b64 = base64.b64encode(_f.read()).decode()
+        _hero_right = (
+            f'<img src="data:image/png;base64,{_img_b64}" '
+            f'style="width:100%; border-radius:14px; object-fit:cover; max-height:280px;" />'
+        )
+    else:
+        _hero_right = """
+        <div style="
+            background: rgba(255,255,255,0.15);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid rgba(255,255,255,0.25);
+        ">
+            <div style="font-size:0.7rem; font-weight:700; letter-spacing:0.1em;
+                        opacity:0.65; margin-bottom:14px; text-transform:uppercase;">
+                구독 현황 예시
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div style="background:rgba(255,255,255,0.18); border-radius:10px; padding:14px 12px;">
+                    <div style="font-size:0.68rem; opacity:0.8; margin-bottom:6px;">월 구독 수</div>
+                    <div style="font-size:1.55rem; font-weight:800; line-height:1;">5개</div>
+                </div>
+                <div style="background:rgba(255,255,255,0.18); border-radius:10px; padding:14px 12px;">
+                    <div style="font-size:0.68rem; opacity:0.8; margin-bottom:6px;">월 반복 지출</div>
+                    <div style="font-size:1.3rem; font-weight:800; line-height:1;">66,000원</div>
+                </div>
+                <div style="background:rgba(255,255,255,0.18); border-radius:10px; padding:14px 12px;">
+                    <div style="font-size:0.68rem; opacity:0.8; margin-bottom:6px;">다음 결제</div>
+                    <div style="font-size:1.55rem; font-weight:800; line-height:1;">D-3</div>
+                </div>
+                <div style="background:#fbbf24; border-radius:10px; padding:14px 12px; color:#1e293b;">
+                    <div style="font-size:0.68rem; font-weight:600; margin-bottom:6px;">카테고리 중복</div>
+                    <div style="font-size:1rem; font-weight:800; line-height:1.35;">OTT<br>2개 이용 중</div>
+                </div>
+            </div>
+        </div>
+        """
+
+    # ── 히어로 블록 (2열) ──
+    st.markdown(f"""
 <div style="
-    background: linear-gradient(135deg, #1e3a8a 0%, #4338ca 100%);
+    background: linear-gradient(135deg, #3B82F6 0%, #6366F1 100%);
     border-radius: 20px;
     padding: 52px 48px 44px 48px;
     color: white;
     margin-bottom: 28px;
+    display: flex;
+    align-items: center;
+    gap: 48px;
 ">
-    <div style="
-        font-size: 0.78rem;
-        font-weight: 700;
-        letter-spacing: 0.14em;
-        opacity: 0.6;
-        text-transform: uppercase;
-        margin-bottom: 20px;
-    ">
-        💳 &nbsp;모아Sub
+    <div style="flex: 3; min-width: 0;">
+        <div style="
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            opacity: 0.7;
+            text-transform: uppercase;
+            margin-bottom: 20px;
+        ">
+            💳 &nbsp;모아Sub
+        </div>
+        <div style="
+            font-size: 2.1rem;
+            font-weight: 800;
+            line-height: 1.38;
+            margin-bottom: 20px;
+        ">
+            사고 싶은 목표를 정하고,<br>
+            자동결제로 새어나가는<br>구독 지출을 점검해보세요.
+        </div>
+        <div style="
+            font-size: 0.97rem;
+            line-height: 1.78;
+            opacity: 0.85;
+        ">
+            모아Sub은 반복되는 구독 지출을 한눈에 확인하고,<br>
+            사용 빈도·만족도·결제일·카테고리 중복 여부를 바탕으로<br>
+            구독 상태를 점검할 수 있도록 돕는 서비스입니다.
+        </div>
     </div>
-    <div style="
-        font-size: 2.15rem;
-        font-weight: 800;
-        line-height: 1.4;
-        margin-bottom: 22px;
-    ">
-        사고 싶은 목표를 정하고,<br>
-        자동결제로 새어나가는<br>
-        구독 지출을 점검해보세요.
-    </div>
-    <div style="
-        font-size: 0.97rem;
-        line-height: 1.8;
-        opacity: 0.82;
-        max-width: 600px;
-    ">
-        모아Sub은 반복되는 구독 지출을 한눈에 확인하고,<br>
-        사용 빈도·만족도·결제일·카테고리 중복 여부를 바탕으로<br>
-        구독 상태를 점검할 수 있도록 돕는 서비스입니다.
+    <div style="flex: 2; min-width: 0;">
+        {_hero_right}
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -245,17 +297,26 @@ if st.session_state["page"] == "landing":
     border-radius: 16px;
     padding: 28px 28px 8px 28px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 6px 20px rgba(0,0,0,0.04);
-    margin-bottom: 8px;
 ">
-<p style="font-size:1.05rem;font-weight:700;color:#1e293b;margin:0 0 6px 0">
+<p style="font-size:1.05rem; font-weight:700; color:#1e293b; margin:0 0 6px 0;">
     목표 소비 설정
 </p>
-<p style="font-size:0.875rem;color:#64748b;line-height:1.65;margin:0 0 16px 0">
-    사고 싶은 항목과 목표 금액을 입력하면, 점검 결과 화면에서 반복 지출을 줄였을 때
-    목표 달성 속도가 어떻게 달라지는지 확인할 수 있습니다.
+<p style="font-size:0.875rem; color:#64748b; line-height:1.65; margin:0 0 14px 0;">
+    사고 싶은 항목과 목표 금액을 입력하면, 구독 점검 결과 화면에서 반복 지출을
+    점검 대상으로 선택했을 때 목표 달성 속도가 어떻게 달라지는지 확인할 수 있습니다.
 </p>
+<p style="font-size:0.78rem; color:#94a3b8; margin:0 0 4px 0;">예시로 시작하기</p>
 """, unsafe_allow_html=True)
 
+    # 예시 칩 버튼
+    chip_c1, chip_c2, chip_c3, chip_c4, _ = st.columns([1, 1, 1, 1, 5])
+    for _col, _chip in zip([chip_c1, chip_c2, chip_c3, chip_c4],
+                            ["에어팟", "여행", "노트북", "콘서트"]):
+        if _col.button(_chip, key=f"chip_{_chip}"):
+            st.session_state["target_name"] = _chip
+            st.rerun()
+
+    # 입력 필드
     l1, l2 = st.columns(2)
     with l1:
         landing_target_name = st.text_input(
@@ -271,16 +332,13 @@ if st.session_state["page"] == "landing":
             step=1000,
         )
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
     # ── 시작 버튼 ──
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
     btn_col1, btn_col2 = st.columns(2)
     with btn_col1:
         if st.button("목표 설정하고 구독 점검 시작하기", type="primary", use_container_width=True):
             st.session_state["target_name"] = landing_target_name.strip()
             st.session_state["target_price"] = int(landing_target_price)
-            # 구독 점검 페이지의 목표 소비 입력창에 기본값으로 연결
             st.session_state["goal_product"] = landing_target_name.strip()
             st.session_state["goal_price"] = int(landing_target_price)
             st.session_state["page"] = "check"
@@ -291,6 +349,8 @@ if st.session_state["page"] == "landing":
             st.session_state["target_price"] = 0
             st.session_state["page"] = "check"
             st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 else:
 
@@ -344,7 +404,12 @@ else:
             with col_a:
                 service_name = st.text_input("서비스명 *", placeholder="예: 넷플릭스")
                 category = st.selectbox("카테고리 *", ["OTT", "음악", "쇼핑", "클라우드", "교육", "생산성", "기타"])
-                monthly_fee = st.number_input("월 결제금액 (원) *", min_value=0, value=0, step=100)
+                billing_cycle = st.selectbox("결제 주기 *", ["월별", "연간"])
+                fee_input = st.number_input(
+                    "결제금액 (원) *",
+                    min_value=0, value=0, step=100,
+                    help="월별: 월 결제금액 입력 / 연간: 연간 총액 입력 (월 환산 자동 계산)",
+                )
             with col_b:
                 usage_label = st.selectbox("최근 한 달 사용 빈도 *", list(USAGE_RANGES.keys()))
                 usage_count = USAGE_RANGES[usage_label]
@@ -358,10 +423,12 @@ else:
                 if not service_name.strip():
                     st.error("서비스명을 입력해주세요.")
                 else:
+                    monthly_fee = int(fee_input) // 12 if billing_cycle == "연간" else int(fee_input)
                     st.session_state.subscriptions.append({
                         "service_name": service_name.strip(),
                         "category": category,
-                        "monthly_fee": int(monthly_fee),
+                        "monthly_fee": monthly_fee,
+                        "billing_cycle": billing_cycle,
                         "usage_count": int(usage_count),
                         "satisfaction": int(satisfaction),
                         "billing_date": billing_date.strftime("%Y-%m-%d"),
@@ -376,7 +443,7 @@ else:
             st.subheader(f"현재 구독 목록 ({len(st.session_state.subscriptions)}개)")
 
             cols = st.columns([3, 2, 2, 4, 2, 1])
-            for col, label in zip(cols, ["서비스명", "카테고리", "월 요금", "사용 빈도", "만족도", "삭제"]):
+            for col, label in zip(cols, ["서비스명", "카테고리", "결제금액", "사용 빈도", "만족도", "삭제"]):
                 col.markdown(f"**{label}**")
             st.markdown("<hr style='margin:4px 0'>", unsafe_allow_html=True)
 
@@ -384,7 +451,11 @@ else:
                 cols = st.columns([3, 2, 2, 4, 2, 1])
                 cols[0].write(f"**{sub['service_name']}**")
                 cols[1].write(sub["category"])
-                cols[2].write(f"{sub['monthly_fee']:,}원")
+                cycle = sub.get("billing_cycle", "월별")
+                if cycle == "연간":
+                    cols[2].write(f"{sub['monthly_fee'] * 12:,}원/년")
+                else:
+                    cols[2].write(f"{sub['monthly_fee']:,}원/월")
                 cols[3].write(USAGE_LABELS.get(sub["usage_count"], f"{sub['usage_count']}회"))
                 cols[4].write("★" * sub["satisfaction"] + "☆" * (5 - sub["satisfaction"]))
                 if cols[5].button("삭제", key=f"del_{i}"):
@@ -401,21 +472,6 @@ else:
                 st.rerun()
         else:
             st.info("페르소나를 선택하거나 구독 서비스를 직접 추가해주세요.")
-
-        st.divider()
-
-        # ── 목표 소비 입력 ──
-        st.subheader("목표 소비 선택 시뮬레이션 (선택)")
-        st.caption("목표 상품을 입력하면 구독 점검 시 저축 속도 변화를 보여줍니다. 비워도 점검은 정상 작동합니다.")
-
-        g1, g2 = st.columns(2)
-        with g1:
-            goal_product = st.text_input("목표 상품명", placeholder="예: 에어팟", key="goal_product")
-        with g2:
-            goal_price_init = st.session_state.get("goal_price", 0)
-            if not isinstance(goal_price_init, (int, float)):
-                goal_price_init = 0
-            goal_price = st.number_input("목표 금액 (원)", min_value=0, value=int(goal_price_init), step=1000, key="goal_price")
 
         st.divider()
 
